@@ -13,10 +13,8 @@ on:
   workflow_dispatch:
 
 env:
-  GHCR_REPO: shenxn/protonmail-bridge-docker
-  DOCKERHUB_REPO: shenxn/protonmail-bridge
-  DOCKER_REPO_DEV: ghcr.io/shenxn/protonmail-bridge
-  PLATFORMS: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/riscv64
+  GHCR_REPO: j0sh3rs/protonmail-bridge-docker
+  PLATFORMS: linux/amd64,linux/arm64/v8
 
 jobs:
   test:
@@ -57,14 +55,14 @@ jobs:
           outputs: type=image,"name=${{ env.DOCKER_REPO_DEV }}",push-by-digest=false,name-canonical=true,push=true
           context: ./build
           file: ./build/Dockerfile
-          tags: "${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}"
+          tags: '${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}'
           build-args: |
             version=${{ env.version }}
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: "${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}"
+          image-ref: '${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}'
           format: 'sarif'
           exit-code: 0
           severity: 'CRITICAL,HIGH'
@@ -78,17 +76,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
         platform:
           - linux/amd64
           - linux/arm64/v8
-          - linux/arm/v7
-          - linux/riscv64
     steps:
       - name: Checkout
-        uses: actions/checkout@master
+        uses: actions/checkout@4
 
       - name: Prepare
         run: |
@@ -99,20 +100,6 @@ jobs:
         id: version
         run: echo "version=`cat VERSION`" >> $GITHUB_ENV
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.DOCKERHUB_REPO }}
-            ${{ env.GHCR_REPO }}
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
-
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -120,8 +107,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{env.${{ env.GHCR_REPO }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -132,18 +123,23 @@ jobs:
         with:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=name=${{ env.DOCKERHUB_REPO }},${{ env.GHCR_REPO }}",push-by-digest=true,name-canonical=true,push=false
+          outputs: type=image,"name=name=${{ env.GHCR_REPO }}",push-by-digest=true,name-canonical=true,push=false
           context: ./build
           file: ./build/Dockerfile
           tags: |
-            "${{ env.DOCKERHUB_REPO }}:build"
-            "${{ env.DOCKERHUB_REPO }}:${{ env.version }}-build"
             "${{ env.GHCR_REPO }}:build"
             "${{ env.GHCR_REPO }}:${{ env.version }}-build"
           provenance: false
           sbom: false
           build-args: |
             version=${{ env.version }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.GHCR_REPO }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
       - name: Export digest
         run: |
@@ -158,7 +154,6 @@ jobs:
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
-
 
   merge:
     runs-on: ubuntu-latest
@@ -175,12 +170,6 @@ jobs:
       - name: Set version
         id: version
         run: echo "version=`cat VERSION`" >> $GITHUB_ENV
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -199,7 +188,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.DOCKERHUB_REPO }}
             ${{ env.GHCR_REPO }}
           tags: |
             type=raw,enable=true,value=${{ env.version }}-build
@@ -209,14 +197,12 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.DOCKERHUB_REPO }}@sha256:%s ' *)
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.GHCR_REPO }}@sha256:%s ' *)
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: "${{ env.DOCKERHUB_REPO }}:${{ env.version }}-build"
+          image-ref: '${{ env.GHCR_REPO }}:${{ env.version }}-build'
           format: 'sarif'
           exit-code: 0
           severity: 'CRITICAL,HIGH'
@@ -228,5 +214,4 @@ jobs:
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:${{ steps.meta.outputs.version }}
           docker buildx imagetools inspect ${{ env.GHCR_REPO }}:${{ steps.meta.outputs.version }}
