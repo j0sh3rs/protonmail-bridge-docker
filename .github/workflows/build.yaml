@@ -135,13 +135,6 @@ jobs:
           build-args: |
             version=${{ env.version }}
 
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ${{ env.GHCR_REPO }}/${{ env.version}}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
-
       - name: Export digest
         run: |
           mkdir -p ${{ runner.temp }}/digests
