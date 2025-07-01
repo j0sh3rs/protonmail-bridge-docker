@@ -5,14 +5,12 @@ ARG version
 
 # Install build dependencies
 RUN apk add --no-cache \
-  bash \
-  git \
-  make \
-  gcc \
-  musl-dev \
-  libsecret-dev \
-  pkgconfig \
-  libc-dev
+    git \
+    make \
+    gcc \
+    musl-dev \
+    libsecret-dev \
+    pkgconfig
 
 # Build
 ADD https://github.com/ProtonMail/proton-bridge.git#${version} /build/
@@ -27,17 +25,14 @@ EXPOSE 143/tcp
 
 # Install runtime dependencies
 RUN apk add --no-cache \
-  bash \
-  dbus \
-  dbus-x11 \
-  socat \
-  pass \
-  gnupg \
-  procps-ng \
-  libsecret \
-  ca-certificates \
-  coreutils \
-  && rm -rf /var/cache/apk/*
+    bash \
+    socat \
+    pass \
+    gnupg \
+    procps \
+    libsecret \
+    ca-certificates \
+    && rm -rf /var/cache/apk/*
 
 # Copy bash scripts
 COPY gpgparams entrypoint.sh /protonmail/

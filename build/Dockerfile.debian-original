@@ -1,48 +1,31 @@
-# Alpine-based Golang build for ProtonMail Bridge
-FROM golang:alpine AS build
+# The build image could be golang, but it currently does not support riscv64. Only debian:sid does, at the time of writing.
+FROM debian:sid-slim AS build
 
 ARG version
 
-# Install build dependencies
-RUN apk add --no-cache \
-  bash \
-  git \
-  make \
-  gcc \
-  musl-dev \
-  libsecret-dev \
-  pkgconfig \
-  libc-dev
+# Install dependencies
+RUN apt-get update && apt-get install -y golang build-essential libsecret-1-dev
 
 # Build
 ADD https://github.com/ProtonMail/proton-bridge.git#${version} /build/
 WORKDIR /build/
 RUN make build-nogui vault-editor
 
-FROM alpine:latest
+FROM debian:sid-slim
 LABEL maintainer="Josh Simmonds <github@beholdthehurricane.com>"
 
 EXPOSE 25/tcp
 EXPOSE 143/tcp
 
-# Install runtime dependencies
-RUN apk add --no-cache \
-  bash \
-  dbus \
-  dbus-x11 \
-  socat \
-  pass \
-  gnupg \
-  procps-ng \
-  libsecret \
-  ca-certificates \
-  coreutils \
-  && rm -rf /var/cache/apk/*
+# Install dependencies and protonmail bridge
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends socat pass procps libsecret-1-0 ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy bash scripts
 COPY gpgparams entrypoint.sh /protonmail/
 
-# Copy protonmail binaries
+# Copy protonmail
 COPY --from=build /build/bridge /protonmail/
 COPY --from=build /build/proton-bridge /protonmail/
 COPY --from=build /build/vault-editor /protonmail/
