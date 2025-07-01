@@ -12,15 +12,15 @@ WORKDIR /build/
 RUN make build-nogui vault-editor
 
 FROM debian:sid-slim
-LABEL maintainer="Simon Felding <sife@adm.ku.dk>"
+LABEL maintainer="Josh Simmonds <github@beholdthehurricane.com>"
 
 EXPOSE 25/tcp
 EXPOSE 143/tcp
 
 # Install dependencies and protonmail bridge
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends socat pass libsecret-1-0 ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends socat pass procps libsecret-1-0 ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy bash scripts
 COPY gpgparams entrypoint.sh /protonmail/
