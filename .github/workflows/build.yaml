@@ -112,7 +112,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{env.${{ env.GHCR_REPO }}
+            ${{ env.GHCR_REPO }}:build
+            ${{ env.GHCR_REPO}}:${{ env.version }}-build
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
