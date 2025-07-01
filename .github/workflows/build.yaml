@@ -13,194 +13,53 @@ on:
   workflow_dispatch:
 
 env:
-  GHCR_REPO: j0sh3rs/protonmail-bridge-docker
-  # PLATFORMS: linux/amd64,linux/arm64
-  PLATFORMS: amd64
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
+  build-and-push-image:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/master'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@master
-
-      - name: Set version
-        id: version
-        run: echo "version=`cat VERSION`" >> $GITHUB_ENV
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.DOCKER_REPO_DEV }}
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/${{ env.PLATFORMS }}
-
-      - name: Build and push by digest
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=${{ env.DOCKER_REPO_DEV }}",push-by-digest=false,name-canonical=true,push=true
-          context: ./build
-          file: ./build/Dockerfile
-          tags: '${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}'
-          build-args: |
-            version=${{ env.version }}
-
-      - name: Run Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          image-ref: '${{ env.DOCKER_REPO_DEV }}:dev-${{ github.ref_name }}'
-          format: 'sarif'
-          exit-code: 0
-          severity: 'CRITICAL,HIGH'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan SARIF report
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  build:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - amd64
-          # - linux/arm64
+      #
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set version
-        id: version
-        run: echo "version=`cat VERSION`" >> $GITHUB_ENV
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      # Uses the `docker/login-action` action to log in to the Container registry registry using the account and password that will publish the packages. Once published, the packages are scoped to the account defined here.
+      - name: Log in to the Container registry
+        uses: docker/login-action@3
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker meta
+      # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about) to extract tags and labels that will be applied to the specified image. The `id` "meta" allows the output of this step to be referenced in a subsequent step. The `images` value provides the base name for the tags and labels.
+      - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@5
         with:
-          images: |
-            ${{ env.GHCR_REPO }}:build
-            ${{ env.GHCR_REPO}}:${{ env.version }}-build
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push by digest
-        id: build
-        uses: docker/build-push-action@v6
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      # This step uses the `docker/build-push-action` action to build the image, based on your repository's `Dockerfile`. If the build succeeds, it pushes the image to GitHub Packages.
+      # It uses the `context` parameter to define the build's context as the set of files located in the specified path. For more information, see [Usage](https://github.com/docker/build-push-action#usage) in the README of the `docker/build-push-action` repository.
+      # It uses the `tags` and `labels` parameters to tag and label the image with the output from the "meta" step.
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@6
         with:
-          platforms: linux/${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=name=${{ env.GHCR_REPO }}",push-by-digest=true,name-canonical=true,push=false
-          context: ./build
-          file: ./build/Dockerfile
-          tags: |
-            "${{ env.GHCR_REPO }}:build"
-            "${{ env.GHCR_REPO }}:${{ env.version }}-build"
-            "${{ env.GHCR_REPO }}:${{ env.version }}-${{ matrix.platform }}"
-          provenance: true
+          context: ./build/
+          push: true
           sbom: true
-          build-args: |
-            version=${{ env.version }}
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      # - name: Export digest
-      #   run: |
-      #     mkdir -p ${{ runner.temp }}/digests
-      #     digest="${{ steps.build.outputs.digest }}"
-      #     touch "${{ runner.temp }}/digests/${digest#sha256:}"
-
-      # - name: Upload digest
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: digests-${{ env.PLATFORM_PAIR }}
-      #     path: ${{ runner.temp }}/digests/*
-      #     if-no-files-found: error
-      #     retention-days: 1
-
-  # merge:
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - build
-  #   steps:
-  #     - name: Download digests
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: ${{ runner.temp }}/digests
-  #         pattern: digests-*
-  #         merge-multiple: true
-
-  #     - name: Set version
-  #       id: version
-  #       run: echo "version=`cat VERSION`" >> $GITHUB_ENV
-
-  #     - name: Login to GHCR
-  #       uses: docker/login-action@v3
-  #       with:
-  #         registry: ghcr.io
-  #         username: ${{ github.repository_owner }}
-  #         password: ${{ secrets.GITHUB_TOKEN }}
-
-  #     - name: Set up Docker Buildx
-  #       uses: docker/setup-buildx-action@v3
-
-  #     - name: Docker meta
-  #       id: meta
-  #       uses: docker/metadata-action@v5
-  #       with:
-  #         images: |
-  #           ${{ env.GHCR_REPO }}
-  #         tags: |
-  #           type=raw,enable=true,value=${{ env.version }}-build
-  #           type=raw,enable=true,suffix=,value=build
-
-  #     - name: Create manifest list and push
-  #       working-directory: ${{ runner.temp }}/digests
-  #       run: |
-  #         docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-  #           $(printf '${{ env.GHCR_REPO }}@sha256:%s ' *)
-
-  #     - name: Run Trivy vulnerability scan
-  #       uses: aquasecurity/trivy-action@0.30.0
-  #       with:
-  #         image-ref: '${{ env.GHCR_REPO }}:${{ env.version }}-build'
-  #         format: 'sarif'
-  #         exit-code: 0
-  #         severity: 'CRITICAL,HIGH'
-  #         output: 'trivy-results.sarif'
-  #     - name: Upload Trivy scan SARIF report
-  #       uses: github/codeql-action/upload-sarif@v3
-  #       with:
-  #         sarif_file: 'trivy-results.sarif'
-
-  #     - name: Inspect image
-  #       run: |
-  #         docker buildx imagetools inspect ${{ env.GHCR_REPO }}:${{ steps.meta.outputs.version }}
+      # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how it was built. It increases supply chain security for people who consume the image. For more information, see [Using artifact attestations to establish provenance for builds](/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds).
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
